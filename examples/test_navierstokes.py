@@ -15,8 +15,8 @@ mesh = Mesh( geo.GenerateMesh(maxh=0.07))
 mesh.Curve(3)
 
 
-timestep = 0.001
-navstokes = NavierStokes (mesh, nu=0.002, order=2, timestep = timestep,
+timestep = 0.002
+navstokes = NavierStokes (mesh, nu=0.001, order=2, timestep = timestep,
                               inflow="inlet", outflow="outlet", wall="wall|cyl",
                               uin=CoefficientFunction( (1.5*4*y*(0.41-y)/(0.41*0.41), 0) ))
                               
@@ -27,7 +27,7 @@ Draw (navstokes.Pressure(), mesh, "pressure")
 Draw (navstokes.Velocity(), mesh, "velocity")
 visoptions.scalfunction='velocity:0'
 
-tend = 0.1
+tend = 100
 t = 0
 
 with TaskManager(pajetrace=100*1000*1000):

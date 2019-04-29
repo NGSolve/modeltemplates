@@ -43,24 +43,24 @@ class NavierStokes:
         def tang(u): return u-(u*n)*n
     
         self.a = BilinearForm (self.V, eliminate_hidden = True)
-        self.a += SymbolicBFI ( 1/nu * InnerProduct ( sigma,tau))
+        self.a += SymbolicBFI ( 0.5/nu * InnerProduct ( sigma,tau))
         self.a += SymbolicBFI ( (div(sigma) * v + div(tau) * u))
         self.a += SymbolicBFI ( -(((sigma*n)*n ) * (v*n) + ((tau*n)*n )* (u*n)) , element_boundary = True)
         self.a += SymbolicBFI ( (sigma*n)*tang(vhat) + (tau*n)*tang(uhat), element_boundary = True)
         self.a += SymbolicBFI ( InnerProduct(W,tau) + InnerProduct(R,sigma) )
-        self.a += SymbolicBFI ( 1e6/nu*div(u)*div(v))
+        self.a += SymbolicBFI ( 1e12*nu*div(u)*div(v))
 
         self.gfu = GridFunction(self.V)
 
-        # self.f = LinearForm(self.V)
+        self.f = LinearForm(self.V)
 
         self.mstar = BilinearForm(self.V, eliminate_hidden = True)
-        self.mstar += SymbolicBFI ( timestep*1/nu * InnerProduct ( sigma,tau))
+        self.mstar += SymbolicBFI ( timestep*0.5/nu * InnerProduct ( sigma,tau))
         self.mstar += SymbolicBFI ( timestep*(div(sigma) * v + div(tau) * u))
         self.mstar += SymbolicBFI ( timestep*(-(((sigma*n)*n ) * (v*n) + ((tau*n)*n )* (u*n))) , element_boundary = True)
         self.mstar += SymbolicBFI ( timestep*((sigma*n)*tang(vhat) + (tau*n)*tang(uhat)), element_boundary = True)
         self.mstar += SymbolicBFI ( timestep*(InnerProduct(W,tau) + InnerProduct(R,sigma)) )
-        self.mstar += SymbolicBFI ( timestep*1e6/nu*div(u)*div(v))
+        self.mstar += SymbolicBFI ( timestep*1e12*nu*div(u)*div(v))
         self.mstar += SymbolicBFI ( -u*v )
 
         u,v = V1.TnT()
@@ -89,16 +89,20 @@ class NavierStokes:
         
     def SolveInitial(self):
         self.a.Assemble()
-
+        self.f.Assemble()
+        
         temp = self.a.mat.CreateColVector()
         self.gfu.components[0].Set (self.uin, definedon=self.V.mesh.Boundaries(self.inflow))
         self.gfu.components[1].Set (self.uin, definedon=self.V.mesh.Boundaries(self.inflow))
 
         inv = self.a.mat.Inverse(self.V.FreeDofs(), inverse="sparsecholesky")
-        temp.data = self.a.mat * self.gfu.vec
+        temp.data = self.a.mat * self.gfu.vec + self.f.vec
         self.gfu.vec.data -= inv * temp
 
-        
+    def AddForce(self, force):
+        force = CoefficientFunction(force)
+        v, vhat, tau, R  = self.V.TestFunction()        
+        self.f += SymbolicLFI(force * v)
         
     def DoTimeStep(self):
         
@@ -107,8 +111,9 @@ class NavierStokes:
             self.invmstar = self.mstar.mat.Inverse(self.V.FreeDofs(), inverse="sparsecholesky")
         
         self.temp = self.a.mat.CreateColVector()        
-
+        self.f.Assemble()
         self.temp.data = self.conv_operator * self.gfu.vec
+        self.temp.data += self.f.vec
         self.temp.data += self.a.mat * self.gfu.vec
         
         self.gfu.vec.data -= self.timestep * self.invmstar * self.temp

@@ -1,0 +1,7 @@
+ng.ini
+__pycache__
+*.o
+*.so
+code*.cpp
+ng*.trace
+ng*.trace.html
