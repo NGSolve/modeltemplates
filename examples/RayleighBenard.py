@@ -1,7 +1,6 @@
 from ngsolve import *
-import sys
-sys.path.insert(0,'../templates')
-from modeltemplates import *
+from ngs_templates.NavierStokes import *
+from ngs_templates.ConvectionDiffusion import *
 from netgen.geom2d import *
 from ngsolve.internal import visoptions
 import math
@@ -20,7 +19,7 @@ navstokes = NavierStokes (mesh, nu=1.04177e-6, order=3, timestep = timestep,
 T0 = 293
 Tinitial = 293.5-50*y+y*(0.01-y)*1e3*sin(20/0.06*x*math.pi)
 
-convdiff = ConvectionDiffusionEquation (mesh, order=3, lam=1.38e-7, wind = navstokes.Velocity(), dirichlet="b|t", udir=Tinitial, timestep=timestep)
+convdiff = ConvectionDiffusionEquation (mesh, order=3, lam=1.38e-7, wind = navstokes.velocity, dirichlet="b|t", udir=Tinitial, timestep=timestep)
 
 
 convdiff.SetInitial(Tinitial)
@@ -28,15 +27,15 @@ convdiff.SetInitial(Tinitial)
 beta = 2.07e-4
 
 
-navstokes.AddForce ( (1-beta*(convdiff.Concentration()-T0))*(0, -9.81))
+navstokes.AddForce ( (1-beta*(convdiff.concentration-T0))*(0, -9.81))
 
 navstokes.SolveInitial()
 
 
-Draw (navstokes.Pressure(), mesh, "pressure")
-Draw (navstokes.Velocity(), mesh, "velocity")
+Draw (navstokes.pressure, mesh, "pressure")
+Draw (navstokes.velocity, mesh, "velocity")
 visoptions.scalfunction='velocity:0'
-Draw (convdiff.Concentration(), mesh, "temp")
+Draw (convdiff.concentration, mesh, "temp")
 
 input ("key")
 

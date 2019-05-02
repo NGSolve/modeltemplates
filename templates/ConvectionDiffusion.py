@@ -1,6 +1,7 @@
 from ngsolve import *
-from mt_global import *
+from .mt_global import *
 
+__all__ = ["ConvectionDiffusionEquation"]
 
 class ConvectionDiffusionEquation:
     
@@ -46,5 +47,7 @@ class ConvectionDiffusionEquation:
         temp.data = self.bfdiff.mat * self.gfu.vec + self.bfconv.mat * self.gfu.vec
         self.gfu.vec.data -= self.timestep*self.invmstar *temp
 
-    def Concentration(self):
+    @property
+    def concentration(self):
         return self.gfu.components[0]
+

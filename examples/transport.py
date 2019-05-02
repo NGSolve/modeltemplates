@@ -1,8 +1,5 @@
 from ngsolve import *
-import sys
-sys.path.insert(0,'../templates')
-from modeltemplates import *
-
+from ngs_templates.Transport import *
 
 from netgen.geom2d import unit_square
 mesh = Mesh( unit_square.GenerateMesh(maxh=0.1))
@@ -12,7 +9,7 @@ transport = TransportEquation (mesh, order=4, wind = (y-0.5, -x+0.5), timestep=t
 
 transport.SetInitial( exp (-100* ((x-0.8)**2 + (y-0.5)**2) ) )
 
-Draw (transport.Concentration(), mesh, "c")
+Draw (transport.concentration, mesh, "c")
 
 tend = 100
 t = 0
