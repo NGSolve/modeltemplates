@@ -1,6 +1,7 @@
 from ngsolve import *
-from mt_global import *
+from .mt_global import *
 
+__all__ = ["TransportEquation"]
 
 class TransportEquation:
     
@@ -35,5 +36,6 @@ class TransportEquation:
         temp.data = self.bfa.mat * tempu
         self.gfu.vec.data -= self.timestep * self.invmass *temp
 
-    def Concentration(self):
+    @property
+    def concentration(self):
         return self.gfu

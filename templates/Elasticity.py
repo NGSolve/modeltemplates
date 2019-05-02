@@ -1,7 +1,23 @@
 from ngsolve import *
 
+__all__ = ["HookMaterial", "Elasticity"]
 
 class HookMaterial:
+    """Implements Hook materiallaw.
+
+The law is given by
+
+.. math::
+    \\mu \\langle \\sigma, \\sigma \\rangle + \\frac{1}{2} \\lambda \\, \\text{trace}(\\sigma)^2
+
+with
+
+.. math::
+    \\mu = \\frac{E}{2(1+\\mathrm{nu})} \\\\
+    \\lambda = \\frac{E \\, \\mathrm{nu}}{(1+\\mathrm{nu})(1-2 \\, \\mathrm{nu})}
+
+Can be called with some strain :math:`\\sigma` and returns materiallaw(:math:`\\sigma`).
+"""
     def __init__(self,E,nu, planestrain=False, planestress=False):
         self.E = E
         self.nu = nu
@@ -14,6 +30,20 @@ class HookMaterial:
     
     
 class Elasticity:
+    """Elasticity problem template.
+
+Implements minimization of
+
+.. math::
+    \\int_{\\mathrm{VOL}(\\mathrm{mesh})} \\mathrm{materiallaw}(\\sigma (u)) \\, dx
+
+with
+
+.. math:: 
+    \\sigma (u) := \\left\\{ \\begin{array} \\math{F} = \\mathrm{Id} + \\nabla u, & \\sigma = \\frac{1}{2} (F^T F - \\mathrm{Id}), & \\text{if nonlinear} \\\\\\ & \\frac{1}{2} (\\nabla u + (\\nabla u)^T), & \\text{else}\\
+ \\end{array} \\right.
+
+"""
     def __init__(self, materiallaw, mesh, nonlinear=False, order=2, volumeforce=None, boundaryforce=None, dirichlet=None):
         self.fes = VectorH1(mesh, order=order, dirichlet=dirichlet)
         self.bfa = BilinearForm(self.fes)

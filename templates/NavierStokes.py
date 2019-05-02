@@ -1,6 +1,7 @@
 from ngsolve import *
-from mt_global import *
+from .mt_global import *
 
+__all__ = ["NavierStokes"]
 
 class NavierStokes:
     
@@ -81,10 +82,11 @@ class NavierStokes:
         self.conv_operator = self.convertl2.T @ self.conv_l2.mat @ self.convertl2
         self.invmstar = None
         
-        
-    def Velocity(self):
+    @property
+    def velocity(self):
         return self.gfu.components[0]
-    def Pressure(self):
+    @property
+    def pressure(self):
         return 1e6/self.nu*div(self.gfu.components[0])
         
     def SolveInitial(self):

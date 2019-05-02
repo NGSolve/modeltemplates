@@ -5,7 +5,7 @@ geo = SplineGeometry()
 geo.AddRectangle( (0, 0), (1, 0.1), bcs = ("bottom", "right", "top", "left"))
 mesh = Mesh( geo.GenerateMesh(maxh=0.1))
 
-from Elasticity_template import *
+from ngs_templates.Elasticity import *
 
 loadfactor = Parameter(0)
 

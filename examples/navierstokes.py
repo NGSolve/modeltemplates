@@ -1,7 +1,5 @@
 from ngsolve import *
-import sys
-sys.path.insert(0,'../templates')
-from modeltemplates import *
+from ngs_templates.NavierStokes import *
 
 from ngsolve.internal import visoptions
 
@@ -23,8 +21,8 @@ navstokes = NavierStokes (mesh, nu=0.001, order=2, timestep = timestep,
 
 navstokes.SolveInitial()
 
-Draw (navstokes.Pressure(), mesh, "pressure")
-Draw (navstokes.Velocity(), mesh, "velocity")
+Draw (navstokes.pressure, mesh, "pressure")
+Draw (navstokes.velocity, mesh, "velocity")
 visoptions.scalfunction='velocity:0'
 
 tend = 100
