@@ -23,21 +23,16 @@ class NavierStokes:
         else:
             S = VectorL2(mesh, order=order-1)
 
-        for i in range(Sigma.ndof):
-            Sigma.SetCouplingType(i, COUPLING_TYPE.HIDDEN_DOF)
+        Sigma.SetCouplingType(IntRange(0,Sigma.ndof), COUPLING_TYPE.HIDDEN_DOF)
         Sigma = Compress(Sigma)
-        for i in range(S.ndof):
-            S.SetCouplingType(i, COUPLING_TYPE.HIDDEN_DOF)
+        S.SetCouplingType(IntRange(0,S.ndof), COUPLING_TYPE.HIDDEN_DOF)
         S = Compress(S)
         
         self.X = FESpace ([V1,Vhat, Sigma, S])
-        # self.X.SetCouplingType(self.X.Range(2), COUPLING_TYPE.HIDDEN_DOF)
-        # self.X.SetCouplingType(self.X.Range(3), COUPLING_TYPE.HIDDEN_DOF)
         for i in range(self.X.ndof):
             if self.X.CouplingType(i) == COUPLING_TYPE.WIREBASKET_DOF:
                 self.X.SetCouplingType(i, COUPLING_TYPE.INTERFACE_DOF)
         self.v1dofs = self.X.Range(0)
-        # self.X = CompressCompound(self.X)
         
         u, uhat, sigma, W  = self.X.TrialFunction()
         v, vhat, tau, R  = self.X.TestFunction()
@@ -56,7 +51,7 @@ class NavierStokes:
         def tang(u): return u-(u*n)*n
 
         self.astokes = BilinearForm (self.X, eliminate_hidden = True)
-        self.astokes += SymbolicBFI ( -0.5/nu * InnerProduct ( sigma,tau))
+        self.astokes += SymbolicBFI ( -0.5/nu * InnerProduct (sigma,tau))
         self.astokes += SymbolicBFI ( (div(sigma) * v + div(tau) * u))
         self.astokes += SymbolicBFI ( -(((sigma*n)*n ) * (v*n) + ((tau*n)*n )* (u*n)) , element_boundary = True)
         self.astokes += SymbolicBFI ( (sigma*n)*tang(vhat) + (tau*n)*tang(uhat), element_boundary = True)
