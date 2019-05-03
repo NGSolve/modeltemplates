@@ -14,8 +14,8 @@ class NavierStokes:
         self.outflow = outflow
         self.wall = wall
         
-        V1 = HDiv(mesh, order=order, dirichlet=inflow+"|"+wall, RT=False)
-        self.V1 = V1
+        V = HDiv(mesh, order=order, dirichlet=inflow+"|"+wall, RT=False)
+        self.V = V
         Vhat = VectorFacet(mesh, order=order-1, dirichlet=inflow+"|"+wall+"|"+outflow, hide_highest_order_dc=True)
         Sigma = HCurlDiv(mesh, order = order-1, orderinner=order, discontinuous=True)
         if mesh.dim == 2:
@@ -28,7 +28,7 @@ class NavierStokes:
         S.SetCouplingType(IntRange(0,S.ndof), COUPLING_TYPE.HIDDEN_DOF)
         S = Compress(S)
         
-        self.X = FESpace ([V1,Vhat, Sigma, S])
+        self.X = FESpace ([V,Vhat, Sigma, S])
         for i in range(self.X.ndof):
             if self.X.CouplingType(i) == COUPLING_TYPE.WIREBASKET_DOF:
                 self.X.SetCouplingType(i, COUPLING_TYPE.INTERFACE_DOF)
@@ -38,47 +38,36 @@ class NavierStokes:
         v, vhat, tau, R  = self.X.TestFunction()
 
         if mesh.dim == 2:
-            def Vec2Skew(v):
-                return CoefficientFunction((0, v, -v, 0), dims = (2,2))
+            def Skew2Vec(m):
+                return m[1,0]-m[0,1]
         else:
-            def Vec2Skew(v):
-                return CoefficientFunction((0, v[0], -v[1], -v[0],  0,  v[2], v[1],  -v[2], 0), dims = (3,3))
+            def Skew2Vec(v):   
+                return CoefficientFunction( (m[0,1]-m[1,0], m[2,0]-m[0,2], m[1,2]-m[2,1]) )
 
-        W = Vec2Skew(W)
-        R = Vec2Skew(R)
-
+        dS = dx(element_boundary=True)
         n = specialcf.normal(mesh.dim)
         def tang(u): return u-(u*n)*n
+        
+        stokesA = -0.5/nu * InnerProduct(sigma,tau) * dx + \
+          (div(sigma)*v+div(tau)*u) * dx + \
+          (InnerProduct(W,Skew2Vec(tau)) + InnerProduct(R,Skew2Vec(sigma))) * dx + \
+          -(((sigma*n)*n) * (v*n) + ((tau*n)*n )* (u*n)) * dS + \
+          ( (sigma*n)*tang(vhat) + (tau*n)*tang(uhat)) * dS
 
+        
         self.astokes = BilinearForm (self.X, eliminate_hidden = True)
-        self.astokes += SymbolicBFI ( -0.5/nu * InnerProduct (sigma,tau))
-        self.astokes += SymbolicBFI ( (div(sigma) * v + div(tau) * u))
-        self.astokes += SymbolicBFI ( -(((sigma*n)*n ) * (v*n) + ((tau*n)*n )* (u*n)) , element_boundary = True)
-        self.astokes += SymbolicBFI ( (sigma*n)*tang(vhat) + (tau*n)*tang(uhat), element_boundary = True)
-        self.astokes += SymbolicBFI ( InnerProduct(W,tau) + InnerProduct(R,sigma) )
+        self.astokes += stokesA
         self.astokes += SymbolicBFI ( 1e12*nu*div(u)*div(v))
 
-            
         self.a = BilinearForm (self.X, eliminate_hidden = True)
-        self.a += SymbolicBFI ( -0.5/nu * InnerProduct ( sigma,tau))
-        self.a += SymbolicBFI ( (div(sigma) * v + div(tau) * u))
-        self.a += SymbolicBFI ( -(((sigma*n)*n ) * (v*n) + ((tau*n)*n )* (u*n)) , element_boundary = True)
-        self.a += SymbolicBFI ( (sigma*n)*tang(vhat) + (tau*n)*tang(uhat), element_boundary = True)
-        self.a += SymbolicBFI ( InnerProduct(W,tau) + InnerProduct(R,sigma) )
-        # self.a += SymbolicBFI ( 1*nu*div(u)*div(v))
+        self.a += stokesA
 
         self.gfu = GridFunction(self.X)
-
         self.f = LinearForm(self.X)
 
         self.mstar = BilinearForm(self.X, eliminate_hidden = True, condense=True)
-        self.mstar += SymbolicBFI ( -timestep*0.5/nu * InnerProduct ( sigma,tau))
-        self.mstar += SymbolicBFI ( timestep*(div(sigma) * v + div(tau) * u))
-        self.mstar += SymbolicBFI ( timestep*(-(((sigma*n)*n ) * (v*n) + ((tau*n)*n )* (u*n))) , element_boundary = True)
-        self.mstar += SymbolicBFI ( timestep*((sigma*n)*tang(vhat) + (tau*n)*tang(uhat)), element_boundary = True)
-        self.mstar += SymbolicBFI ( timestep*(InnerProduct(W,tau) + InnerProduct(R,sigma)) )
-        # self.mstar += SymbolicBFI ( timestep*1*nu*div(u)*div(v))
-        self.mstar += SymbolicBFI ( u*v )
+        self.mstar += timestep * stokesA
+        self.mstar += u*v * dx
 
         self.premstar = Preconditioner(self.mstar, "bddc")
         self.mstar.Assemble()
@@ -92,8 +81,8 @@ class NavierStokes:
 
 
         if False:
-            u,v = V1.TnT()
-            self.conv = BilinearForm(V1, nonassemble=True)
+            u,v = V.TnT()
+            self.conv = BilinearForm(V, nonassemble=True)
             self.conv += SymbolicBFI(InnerProduct(grad(v)*u, u).Compile(True, wait=True))
             self.conv += SymbolicBFI((-IfPos(u * n, u*n*u*v, u*n*u.Other(bnd=self.uin)*v)).Compile(True, wait=True), element_boundary = True)
             emb = Embedding(self.X.ndof, self.v1dofs)
@@ -102,10 +91,10 @@ class NavierStokes:
             VL2 = VectorL2(mesh, order=order, piola=True)
             ul2,vl2 = VL2.TnT()
             self.conv_l2 = BilinearForm(VL2, nonassemble=True)
-            self.conv_l2 += SymbolicBFI(InnerProduct(grad(vl2)*ul2, ul2).Compile(realcompile=realcompile, wait=True))
-            self.conv_l2 += SymbolicBFI((-IfPos(ul2 * n, ul2*n*ul2*vl2, ul2*n*ul2.Other(bnd=self.uin)*vl2)).Compile(realcompile=realcompile, wait=True), element_boundary = True)
+            self.conv_l2 += InnerProduct(grad(vl2)*ul2, ul2).Compile(realcompile=realcompile, wait=True) * dx
+            self.conv_l2 += (-IfPos(ul2 * n, ul2*n*ul2*vl2, ul2*n*ul2.Other(bnd=self.uin)*vl2)).Compile(realcompile=realcompile, wait=True) * dS
         
-            self.convertl2 = V1.ConvertL2Operator(VL2) @ Embedding(self.X.ndof, self.v1dofs).T
+            self.convertl2 = V.ConvertL2Operator(VL2) @ Embedding(self.X.ndof, self.v1dofs).T
             self.conv_operator = self.convertl2.T @ self.conv_l2.mat @ self.convertl2
 
             
@@ -116,22 +105,21 @@ class NavierStokes:
         self.Xproj = FESpace ( [self.V2, self.Q, self.Qhat] )
         (u,p,phat),(v,q,qhat) = self.Xproj.TnT()
         aproj = BilinearForm(self.Xproj, condense=True)
-        aproj += SymbolicBFI(u*v+ div(u)*q + div(v) * p)
-        aproj += SymbolicBFI(u*n*qhat+v*n*phat, element_boundary=True)
+        aproj += (u*v+ div(u)*q + div(v)*p) * dx + (u*n*qhat+v*n*phat) * dS
         aproj.Assemble()
         
         self.invproj1 = aproj.mat.Inverse(self.Xproj.FreeDofs(aproj.condense), inverse="sparsecholesky")
-        ext = IdentityMatrix(self.Xproj.ndof)+aproj.harmonic_extension
-        extT = IdentityMatrix(self.Xproj.ndof)+aproj.harmonic_extension_trans
+        ext = IdentityMatrix()+aproj.harmonic_extension
+        extT = IdentityMatrix()+aproj.harmonic_extension_trans
         self.invproj = ext @ self.invproj1 @ extT + aproj.inner_solve
         
-        self.bproj = BilinearForm(trialspace=self.V1, testspace=self.Xproj)
-        self.bproj += SymbolicBFI(div(self.V1.TrialFunction())*q)
+        self.bproj = BilinearForm(trialspace=self.V, testspace=self.Xproj)
+        self.bproj += SymbolicBFI(div(self.V.TrialFunction())*q)
         self.bproj.Assemble()
 
-        ind = self.V1.ndof * [0]
+        ind = self.V.ndof * [0]
         for el in mesh.Elements(VOL):
-            dofs1 = self.V1.GetDofNrs(el)
+            dofs1 = self.V.GetDofNrs(el)
             dofs2 = self.V2.GetDofNrs(el)
             for d1,d2 in zip(dofs1,dofs2):
                 ind[d1] = d2
@@ -174,7 +162,7 @@ class NavierStokes:
         
 
         self.temp2.data = self.invmstar * self.temp
-        self.Project(self.temp2[0:self.V1.ndof])
+        self.Project(self.temp2[0:self.V.ndof])
         self.gfu.vec.data += self.timestep * self.temp2.data
 
         
