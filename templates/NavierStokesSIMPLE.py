@@ -41,7 +41,7 @@ class NavierStokes:
             def Skew2Vec(m):
                 return m[1,0]-m[0,1]
         else:
-            def Skew2Vec(v):   
+            def Skew2Vec(m):   
                 return CoefficientFunction( (m[0,1]-m[1,0], m[2,0]-m[0,2], m[1,2]-m[2,1]) )
 
         dS = dx(element_boundary=True)
