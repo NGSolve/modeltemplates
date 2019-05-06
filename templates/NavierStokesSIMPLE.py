@@ -74,7 +74,7 @@ class NavierStokes:
         # self.invmstar = self.mstar.mat.Inverse(self.X.FreeDofs(), inverse="sparsecholesky")
         
         # self.invmstar1 = self.mstar.mat.Inverse(self.X.FreeDofs(self.mstar.condense), inverse="sparsecholesky")
-        self.invmstar1 = CGSolver(self.mstar.mat, pre=self.premstar, precision=1e-4)
+        self.invmstar1 = CGSolver(self.mstar.mat, pre=self.premstar, precision=1e-4, printrates=False)
         ext = IdentityMatrix(self.X.ndof)+self.mstar.harmonic_extension
         extT = IdentityMatrix(self.X.ndof)+self.mstar.harmonic_extension_trans
         self.invmstar = ext @ self.invmstar1 @ extT + self.mstar.inner_solve
@@ -106,9 +106,11 @@ class NavierStokes:
         (u,p,phat),(v,q,qhat) = self.Xproj.TnT()
         aproj = BilinearForm(self.Xproj, condense=True)
         aproj += (u*v+ div(u)*q + div(v)*p) * dx + (u*n*qhat+v*n*phat) * dS
+        cproj = Preconditioner(aproj, "bddc")            
         aproj.Assemble()
         
-        self.invproj1 = aproj.mat.Inverse(self.Xproj.FreeDofs(aproj.condense), inverse="sparsecholesky")
+        # self.invproj1 = aproj.mat.Inverse(self.Xproj.FreeDofs(aproj.condense), inverse="sparsecholesky")
+        self.invproj1 = CGSolver(aproj.mat, pre=cproj, printrates=False)
         ext = IdentityMatrix()+aproj.harmonic_extension
         extT = IdentityMatrix()+aproj.harmonic_extension_trans
         self.invproj = ext @ self.invproj1 @ extT + aproj.inner_solve
