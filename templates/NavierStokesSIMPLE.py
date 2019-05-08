@@ -16,7 +16,7 @@ class NavierStokes:
         
         V = HDiv(mesh, order=order, dirichlet=inflow+"|"+wall, RT=False)
         self.V = V
-        Vhat = VectorFacet(mesh, order=order-1, dirichlet=inflow+"|"+wall+"|"+outflow, hide_highest_order_dc=True)
+        Vhat = VectorFacet(mesh, order=order-1, dirichlet=inflow+"|"+wall+"|"+outflow) # , hide_highest_order_dc=True)
         Sigma = HCurlDiv(mesh, order = order-1, orderinner=order, discontinuous=True)
         if mesh.dim == 2:
             S = L2(mesh, order=order-1)            
@@ -57,7 +57,7 @@ class NavierStokes:
         
         self.astokes = BilinearForm (self.X, eliminate_hidden = True)
         self.astokes += stokesA
-        self.astokes += SymbolicBFI ( 1e12*nu*div(u)*div(v))
+        self.astokes += 1e12*nu*div(u)*div(v) * dx
 
         self.a = BilinearForm (self.X, eliminate_hidden = True)
         self.a += stokesA
@@ -74,11 +74,11 @@ class NavierStokes:
         # self.invmstar = self.mstar.mat.Inverse(self.X.FreeDofs(), inverse="sparsecholesky")
         
         # self.invmstar1 = self.mstar.mat.Inverse(self.X.FreeDofs(self.mstar.condense), inverse="sparsecholesky")
+
         self.invmstar1 = CGSolver(self.mstar.mat, pre=self.premstar, precision=1e-4, printrates=False)
         ext = IdentityMatrix(self.X.ndof)+self.mstar.harmonic_extension
         extT = IdentityMatrix(self.X.ndof)+self.mstar.harmonic_extension_trans
         self.invmstar = ext @ self.invmstar1 @ extT + self.mstar.inner_solve
-
 
         if False:
             u,v = V.TnT()
@@ -105,8 +105,8 @@ class NavierStokes:
         self.Xproj = FESpace ( [self.V2, self.Q, self.Qhat] )
         (u,p,phat),(v,q,qhat) = self.Xproj.TnT()
         aproj = BilinearForm(self.Xproj, condense=True)
-        aproj += (u*v+ div(u)*q + div(v)*p) * dx + (u*n*qhat+v*n*phat) * dS
-        cproj = Preconditioner(aproj, "bddc")            
+        aproj += (-u*v+ div(u)*q + div(v)*p) * dx + (u*n*qhat+v*n*phat) * dS
+        cproj = Preconditioner(aproj, "bddc") # , coarsetype="h1amg")            
         aproj.Assemble()
         
         # self.invproj1 = aproj.mat.Inverse(self.Xproj.FreeDofs(aproj.condense), inverse="sparsecholesky")
@@ -119,6 +119,7 @@ class NavierStokes:
         self.bproj += SymbolicBFI(div(self.V.TrialFunction())*q)
         self.bproj.Assemble()
 
+        # mapping of discontinuous to continuous H(div)
         ind = self.V.ndof * [0]
         for el in mesh.Elements(VOL):
             dofs1 = self.V.GetDofNrs(el)
@@ -135,7 +136,7 @@ class NavierStokes:
     def pressure(self):
         return 1e6/self.nu*div(self.gfu.components[0])
         
-    def SolveInitial(self):
+    def SolveInitial(self, timesteps=None):
         self.a.Assemble()        
         self.astokes.Assemble()
         self.f.Assemble()
@@ -144,10 +145,28 @@ class NavierStokes:
         self.gfu.components[0].Set (self.uin, definedon=self.X.mesh.Boundaries(self.inflow))
         self.gfu.components[1].Set (self.uin, definedon=self.X.mesh.Boundaries(self.inflow))
 
-        inv = self.astokes.mat.Inverse(self.X.FreeDofs(), inverse="sparsecholesky")
-        temp.data = -self.astokes.mat * self.gfu.vec + self.f.vec
-        self.gfu.vec.data += inv * temp
+        if not timesteps:
+            inv = self.astokes.mat.Inverse(self.X.FreeDofs(), inverse="sparsecholesky")
+            temp.data = -self.astokes.mat * self.gfu.vec + self.f.vec
+            self.gfu.vec.data += inv * temp
+        else:
+            self.Project(self.gfu.vec[0:self.V.ndof])
+            for it in range(timesteps):
+                print ("it =", it)
+                self.temp = self.a.mat.CreateColVector()
+                self.temp2 = self.a.mat.CreateColVector()        
+                # self.f.Assemble()
+                # self.temp.data = self.conv_operator * self.gfu.vec
+                # self.temp.data += self.f.vec
+                self.temp.data = -self.a.mat * self.gfu.vec
 
+                self.temp2.data = self.invmstar * self.temp
+                self.Project(self.temp2[0:self.V.ndof])
+                self.gfu.vec.data += self.timestep * self.temp2.data
+                self.Project(self.gfu.vec[0:self.V.ndof])
+
+
+                
     def AddForce(self, force):
         force = CoefficientFunction(force)
         v, vhat, tau, R  = self.X.TestFunction()        
@@ -161,7 +180,6 @@ class NavierStokes:
         self.temp.data = self.conv_operator * self.gfu.vec
         self.temp.data += self.f.vec
         self.temp.data += -self.a.mat * self.gfu.vec
-        
 
         self.temp2.data = self.invmstar * self.temp
         self.Project(self.temp2[0:self.V.ndof])
