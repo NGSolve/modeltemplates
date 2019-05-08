@@ -60,7 +60,7 @@ with
         if volumeforce:
             self.bfa += SymbolicEnergy(-volumeforce*u)
         if boundaryforce:
-            self.bfa += SymbolicEnergy(-boundaryfoce*u, BND)
+            self.bfa += SymbolicEnergy(-boundaryforce*u, BND)
 
 
     def Solve(self):
