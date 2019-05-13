@@ -16,11 +16,12 @@ class TransportEquation:
         u,v = fes.TnT()
 
         self.bfa = BilinearForm(fes, nonassemble=True)
-        self.bfa += SymbolicBFI (-u * wind * grad(v))
+        self.bfa += -u * wind * grad(v) * dx
         wn = wind*specialcf.normal(mesh.dim)
-        self.bfa += SymbolicBFI ( IfPos(wn, wn*u, wn*u.Other(bnd=uin)) * v, element_boundary=True)
+        self.bfa += wn * IfPos(wn, u, u.Other(bnd=uin)) * v * dx(element_boundary=True)
 
         self.invmass = fes.Mass(rho=1).Inverse()
+        self.invMA = self.invmass @ self.bfa.mat
         self.gfu = GridFunction(fes)
     
     def SetInitial(self,u0):
@@ -28,13 +29,10 @@ class TransportEquation:
 
     def DoTimeStep(self):
         # second order RK
-        temp  = self.bfa.mat.CreateColVector()
         tempu = self.bfa.mat.CreateColVector()
-        
-        temp.data = self.bfa.mat * self.gfu.vec
-        tempu.data = self.gfu.vec - 0.5 * self.timestep * self.invmass *temp
-        temp.data = self.bfa.mat * tempu
-        self.gfu.vec.data -= self.timestep * self.invmass *temp
+
+        tempu.data = self.gfu.vec - 0.5 * self.timestep * self.invMA * self.gfu.vec
+        self.gfu.vec.data -= self.timestep * self.invMA * tempu
 
     @property
     def concentration(self):

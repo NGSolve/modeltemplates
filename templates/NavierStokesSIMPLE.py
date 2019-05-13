@@ -71,7 +71,6 @@ class NavierStokes:
         self.premstar = Preconditioner(self.mstar, "bddc")
         self.mstar.Assemble()
         # self.invmstar = self.mstar.mat.Inverse(self.X.FreeDofs(), inverse="sparsecholesky")
-        
         # self.invmstar1 = self.mstar.mat.Inverse(self.X.FreeDofs(self.mstar.condense), inverse="sparsecholesky")
 
         self.invmstar1 = CGSolver(self.mstar.mat, pre=self.premstar, precision=1e-4, printrates=False)

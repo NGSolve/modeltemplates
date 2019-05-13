@@ -15,7 +15,7 @@ class NavierStokes:
         self.wall = wall
         
         V1 = HDiv(mesh, order=order, dirichlet=inflow+"|"+wall, RT=False)
-        Vhat = VectorFacet(mesh, order=order-1, dirichlet=inflow+"|"+wall+"|"+outflow, hide_highest_order_dc=True)
+        Vhat = VectorFacet(mesh, order=order-1, dirichlet=inflow+"|"+wall+"|"+outflow) # , hide_highest_order_dc=True)
         Sigma = HCurlDiv(mesh, order = order-1, orderinner=order, discontinuous=True)
         if mesh.dim == 2:
             S = L2(mesh, order=order-1)            
@@ -31,40 +31,33 @@ class NavierStokes:
         v, vhat, tau, R  = self.V.TestFunction()
 
         if mesh.dim == 2:
-            def Vec2Skew(v):
-                return CoefficientFunction((0, v, -v, 0), dims = (2,2))
+            def Skew2Vec(m):
+                return m[1,0]-m[0,1]
         else:
-            def Vec2Skew(v):
-                return CoefficientFunction((0, v[0], -v[1], -v[0],  0,  v[2], v[1],  -v[2], 0), dims = (3,3))
+            def Skew2Vec(m):   
+                return CoefficientFunction( (m[0,1]-m[1,0], m[2,0]-m[0,2], m[1,2]-m[2,1]) )
 
-        W = Vec2Skew(W)
-        R = Vec2Skew(R)
-
+        dS = dx(element_boundary=True)
         n = specialcf.normal(mesh.dim)
         def tang(u): return u-(u*n)*n
-    
+
+        stokesA = -0.5/nu * InnerProduct(sigma,tau) * dx + \
+          (div(sigma)*v+div(tau)*u) * dx + \
+        (InnerProduct(W,Skew2Vec(tau)) + InnerProduct(R,Skew2Vec(sigma))) * dx + \
+        -(((sigma*n)*n) * (v*n) + ((tau*n)*n )* (u*n)) * dS + \
+        (-(sigma*n)*tang(vhat) - (tau*n)*tang(uhat)) * dS
+
+            
         self.a = BilinearForm (self.V, eliminate_hidden = True)
-        self.a += SymbolicBFI ( -0.5/nu * InnerProduct ( sigma,tau))
-        self.a += SymbolicBFI ( (div(sigma) * v + div(tau) * u))
-        self.a += SymbolicBFI ( -(((sigma*n)*n ) * (v*n) + ((tau*n)*n )* (u*n)) , element_boundary = True)
-        self.a += SymbolicBFI ( -(sigma*n)*tang(vhat) - (tau*n)*tang(uhat), element_boundary = True)
-        self.a += SymbolicBFI ( InnerProduct(W,tau) + InnerProduct(R,sigma) )
-        self.a += SymbolicBFI ( 1e12*nu*div(u)*div(v))
+        self.a += stokesA + 1e12*nu*div(u)*div(v) * dx
 
         self.gfu = GridFunction(self.V)
 
         self.f = LinearForm(self.V)
 
         self.mstar = BilinearForm(self.V, eliminate_hidden = True)
-        self.mstar += SymbolicBFI ( -timestep*0.5/nu * InnerProduct ( sigma,tau))
-        self.mstar += SymbolicBFI ( timestep*(div(sigma) * v + div(tau) * u))
-        self.mstar += SymbolicBFI ( timestep*(-(((sigma*n)*n ) * (v*n) + ((tau*n)*n )* (u*n))) , element_boundary = True)
-        self.mstar += SymbolicBFI ( timestep*(-((sigma*n)*tang(vhat) + (tau*n)*tang(uhat))), element_boundary = True)
-        self.mstar += SymbolicBFI ( timestep*(InnerProduct(W,tau) + InnerProduct(R,sigma)) )
-        self.mstar += SymbolicBFI ( timestep*1e12*nu*div(u)*div(v))
-        self.mstar += SymbolicBFI ( u*v )
-
-
+        self.mstar += u*v * dx + timestep * stokesA + timestep * 1e12*nu*div(u)*div(v)*dx
+        
         if False:
             u,v = V1.TnT()
             self.conv = BilinearForm(V1, nonassemble=True)
@@ -107,7 +100,7 @@ class NavierStokes:
     def AddForce(self, force):
         force = CoefficientFunction(force)
         v, vhat, tau, R  = self.V.TestFunction()        
-        self.f += SymbolicLFI(force * v)
+        self.f += force*v*dx
         
     def DoTimeStep(self):
         
