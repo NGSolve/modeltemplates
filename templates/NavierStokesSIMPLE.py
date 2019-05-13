@@ -16,7 +16,7 @@ class NavierStokes:
         
         V = HDiv(mesh, order=order, dirichlet=inflow+"|"+wall, RT=False)
         self.V = V
-        Vhat = VectorFacet(mesh, order=order-1, dirichlet=inflow+"|"+wall+"|"+outflow) # , hide_highest_order_dc=True)
+        Vhat = VectorFacet(mesh, order=order-1, dirichlet=inflow+"|"+wall+"|"+outflow) 
         Sigma = HCurlDiv(mesh, order = order-1, orderinner=order, discontinuous=True)
         if mesh.dim == 2:
             S = L2(mesh, order=order-1)            
@@ -52,7 +52,7 @@ class NavierStokes:
           (div(sigma)*v+div(tau)*u) * dx + \
           (InnerProduct(W,Skew2Vec(tau)) + InnerProduct(R,Skew2Vec(sigma))) * dx + \
           -(((sigma*n)*n) * (v*n) + ((tau*n)*n )* (u*n)) * dS + \
-          ( (sigma*n)*tang(vhat) + (tau*n)*tang(uhat)) * dS
+          (-(sigma*n)*tang(vhat) - (tau*n)*tang(uhat)) * dS
 
         
         self.astokes = BilinearForm (self.X, eliminate_hidden = True)
@@ -66,8 +66,7 @@ class NavierStokes:
         self.f = LinearForm(self.X)
 
         self.mstar = BilinearForm(self.X, eliminate_hidden = True, condense=True)
-        self.mstar += timestep * stokesA
-        self.mstar += u*v * dx
+        self.mstar += u*v * dx + timestep * stokesA
 
         self.premstar = Preconditioner(self.mstar, "bddc")
         self.mstar.Assemble()
@@ -106,7 +105,7 @@ class NavierStokes:
         (u,p,phat),(v,q,qhat) = self.Xproj.TnT()
         aproj = BilinearForm(self.Xproj, condense=True)
         aproj += (-u*v+ div(u)*q + div(v)*p) * dx + (u*n*qhat+v*n*phat) * dS
-        cproj = Preconditioner(aproj, "bddc") # , coarsetype="h1amg")            
+        cproj = Preconditioner(aproj, "bddc", coarsetype="h1amg")            
         aproj.Assemble()
         
         # self.invproj1 = aproj.mat.Inverse(self.Xproj.FreeDofs(aproj.condense), inverse="sparsecholesky")
@@ -138,14 +137,14 @@ class NavierStokes:
         
     def SolveInitial(self, timesteps=None):
         self.a.Assemble()        
-        self.astokes.Assemble()
         self.f.Assemble()
         
-        temp = self.astokes.mat.CreateColVector()
+        temp = self.a.mat.CreateColVector()
         self.gfu.components[0].Set (self.uin, definedon=self.X.mesh.Boundaries(self.inflow))
         self.gfu.components[1].Set (self.uin, definedon=self.X.mesh.Boundaries(self.inflow))
 
         if not timesteps:
+            self.astokes.Assemble()
             inv = self.astokes.mat.Inverse(self.X.FreeDofs(), inverse="sparsecholesky")
             temp.data = -self.astokes.mat * self.gfu.vec + self.f.vec
             self.gfu.vec.data += inv * temp

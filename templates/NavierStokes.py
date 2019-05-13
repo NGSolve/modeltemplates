@@ -47,7 +47,7 @@ class NavierStokes:
         self.a += SymbolicBFI ( -0.5/nu * InnerProduct ( sigma,tau))
         self.a += SymbolicBFI ( (div(sigma) * v + div(tau) * u))
         self.a += SymbolicBFI ( -(((sigma*n)*n ) * (v*n) + ((tau*n)*n )* (u*n)) , element_boundary = True)
-        self.a += SymbolicBFI ( (sigma*n)*tang(vhat) + (tau*n)*tang(uhat), element_boundary = True)
+        self.a += SymbolicBFI ( -(sigma*n)*tang(vhat) - (tau*n)*tang(uhat), element_boundary = True)
         self.a += SymbolicBFI ( InnerProduct(W,tau) + InnerProduct(R,sigma) )
         self.a += SymbolicBFI ( 1e12*nu*div(u)*div(v))
 
@@ -59,7 +59,7 @@ class NavierStokes:
         self.mstar += SymbolicBFI ( -timestep*0.5/nu * InnerProduct ( sigma,tau))
         self.mstar += SymbolicBFI ( timestep*(div(sigma) * v + div(tau) * u))
         self.mstar += SymbolicBFI ( timestep*(-(((sigma*n)*n ) * (v*n) + ((tau*n)*n )* (u*n))) , element_boundary = True)
-        self.mstar += SymbolicBFI ( timestep*((sigma*n)*tang(vhat) + (tau*n)*tang(uhat)), element_boundary = True)
+        self.mstar += SymbolicBFI ( timestep*(-((sigma*n)*tang(vhat) + (tau*n)*tang(uhat))), element_boundary = True)
         self.mstar += SymbolicBFI ( timestep*(InnerProduct(W,tau) + InnerProduct(R,sigma)) )
         self.mstar += SymbolicBFI ( timestep*1e12*nu*div(u)*div(v))
         self.mstar += SymbolicBFI ( u*v )
@@ -68,7 +68,7 @@ class NavierStokes:
         if False:
             u,v = V1.TnT()
             self.conv = BilinearForm(V1, nonassemble=True)
-            self.conv += SymbolicBFI(InnerProduct(grad(v)*u, u).Compile(True, wait=True))
+            self.conv += SymbolicBFI(InnerProduct(grad(v)*u, u).Compile(True, wait=True), bonus_intorder=order)
             self.conv += SymbolicBFI((-IfPos(u * n, u*n*u*v, u*n*u.Other(bnd=self.uin)*v)).Compile(True, wait=True), element_boundary = True)
             emb = Embedding(self.V.ndof, self.v1dofs)
             self.conv_operator = emb @ self.conv.mat @ emb.T
@@ -76,8 +76,8 @@ class NavierStokes:
             VL2 = VectorL2(mesh, order=order, piola=True)
             ul2,vl2 = VL2.TnT()
             self.conv_l2 = BilinearForm(VL2, nonassemble=True)
-            self.conv_l2 += SymbolicBFI(InnerProduct(grad(vl2)*ul2, ul2).Compile(realcompile=realcompile, wait=True))
-            self.conv_l2 += SymbolicBFI((-IfPos(ul2 * n, ul2*n*ul2*vl2, ul2*n*ul2.Other(bnd=self.uin)*vl2)).Compile(realcompile=realcompile, wait=True), element_boundary = True)
+            self.conv_l2 += SymbolicBFI(InnerProduct(grad(vl2)*ul2, ul2).Compile(realcompile=realcompile, wait=True), bonus_intorder=order)
+            self.conv_l2 += SymbolicBFI((-IfPos(ul2 * n, ul2*n*ul2*vl2, ul2*n*ul2.Other(bnd=self.uin)*vl2)).Compile(realcompile=realcompile, wait=True), element_boundary = True, bonus_intorder=order)
         
             self.convertl2 = V1.ConvertL2Operator(VL2) @ Embedding(self.V.ndof, self.v1dofs).T
             self.conv_operator = self.convertl2.T @ self.conv_l2.mat @ self.convertl2
