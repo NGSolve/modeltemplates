@@ -1,9 +1,9 @@
 from ngsolve import *
 
-__all__ = ["HookMaterial", "Elasticity"]
+__all__ = ["HookeMaterial", "NeoHookeMaterial", "Elasticity"]
 
-class HookMaterial:
-    """Implements Hook materiallaw.
+class HookeMaterial:
+    """Implements Hooke materiallaw.
 
 The law is given by
 
@@ -24,8 +24,29 @@ Can be called with some strain :math:`\\sigma` and returns materiallaw(:math:`\\
         self.mu  = E / 2 / (1+nu)
         self.lam = E * nu / ((1+nu)*(1-2*nu))
 
-    def __call__(self,strain):
+    def Stress(self,strain):
+        return 2*self.mu*strain + self.lam*Trace(strain)*Id(strain.dims[0])
+    def Energy(self,strain):
         return self.mu*InnerProduct(strain,strain) + 0.5*self.lam*Trace(strain)**2
+
+
+
+class NeoHookeMaterial:
+    def __init__(self,E,nu, planestrain=True, planestress=True):
+        self.E = E
+        self.nu = nu
+        self.mu  = E / 2 / (1+nu)
+        self.lam = E * nu / ((1+nu)*(1-2*nu))
+
+    def Stress(self,strain):
+        # return 2*self.mu*strain + self.lam*Trace(strain)*Id(strain.dims[0])
+        I = Id(strain.dims[0])        
+        return self.mu * (I - Det(2*strain+I)**(-self.lam/self.mu) * Inv(2*strain+I))
+    
+    def Energy(self,strain):
+        I = Id(strain.dims[0])
+        C = 2*strain+I
+        return self.mu * (Trace(strain) + self.mu/self.lam * (Det(C)**(-self.lam/2/self.mu) - 1))
 
     
     
@@ -44,25 +65,69 @@ with
  \\end{array} \\right.
 
 """
-    def __init__(self, materiallaw, mesh, nonlinear=False, order=2, volumeforce=None, boundaryforce=None, dirichlet=None):
-        self.fes = VectorH1(mesh, order=order, dirichlet=dirichlet)
+    def __init__(self, materiallaw, mesh, \
+                     nonlinear=False, order=2, \
+                     volumeforce=None, boundaryforce=None, dirichlet=None,
+                     boundarydisplacement=None):
+                     
+        # self.fes = VectorH1(mesh, order=order, dirichlet=dirichlet)
+        self.fes = H1(mesh, order=order, dirichlet=dirichlet, dim=mesh.dim)
         self.bfa = BilinearForm(self.fes)
         self.displacement = GridFunction(self.fes, name="displacement")
+        self.materiallaw = materiallaw
+        self.nonlinear = nonlinear
         
         u = self.fes.TrialFunction()
         I = Id(mesh.dim)
         if nonlinear:
-            F = I + grad(u)
+            F = I + Grad(u)
             strain = 0.5 * (F.trans * F - I)
         else:
-            strain = 0.5 * (grad(u)+grad(u).trans)
-        self.bfa += SymbolicEnergy(materiallaw(strain))
+            strain = 0.5 * (Grad(u)+Grad(u).trans)
+        self.bfa += Variation( (materiallaw.Energy(strain)*dx).Compile())
+        
         if volumeforce:
-            self.bfa += SymbolicEnergy(-volumeforce*u)
+            self.bfa += Variation (-volumeforce*u*dx)
+            
         if boundaryforce:
-            self.bfa += SymbolicEnergy(-boundaryforce*u, BND)
+            if type(boundaryforce) is dict:
+                for key,val in boundaryforce.items():
+                    self.bfa += Variation (-val*u*ds(key))
+            else:
+                self.bfa += Variation (-boundaryforce*u*ds)
 
 
+        if boundarydisplacement:
+            if type(boundarydisplacement) is dict:
+                print ("dim u = ", u.dims)
+                for key,val in boundarydisplacement.items():
+                    val = CoefficientFunction(val)
+                    print ("dim val = ", val.dims)
+                    self.bfa += Variation (10**8* InnerProduct(u-val,u-val)*ds(key))
+            
+                
+
+                
     def Solve(self):
         solvers.Newton(self.bfa, self.displacement)
+
+
+        
+    @property
+    def F(self):
+        I = Id(self.displacement.dim)        
+        return I + Grad(self.displacement)
+        
+    @property
+    def strain(self):
+        if self.nonlinear:
+            I = Id(self.displacement.dim)
+            F = I + Grad(self.displacement)
+            return 0.5 * (F.trans*F-I)
+        else:
+            return 0.5 * (Grad(self.displacement)+Grad(self.displacement).trans)
+        
+    @property
+    def stress(self):
+        return self.materiallaw.Stress(self.strain).Compile()
 
