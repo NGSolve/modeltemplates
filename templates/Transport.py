@@ -14,14 +14,30 @@ class TransportEquation:
         
         fes = L2(mesh, order=order, all_dofs_together=True)
         u,v = fes.TnT()
+        
+        usetrace = True
+        if not usetrace:
+            self.bfa = BilinearForm(fes, nonassemble=True)
+            self.bfa += -u * wind * grad(v) * dx
+            wn = wind*specialcf.normal(mesh.dim)
+            self.bfa += (wn * IfPos(wn, u, u.Other(bnd=uin)) * v).Compile(True, wait=True) * dx(element_boundary=True)
+            aop = self.bfa.mat
+        else:
+            fes_trace = Discontinuous(FacetFESpace(mesh, order=order))
+            utr,vtr = fes_trace.TnT()
+            trace = fes.TraceOperator(fes_trace, False)
+            
+            self.bfa = BilinearForm(fes, nonassemble=True)
+            self.bfa += -u * wind * grad(v) * dx
 
-        self.bfa = BilinearForm(fes, nonassemble=True)
-        self.bfa += -u * wind * grad(v) * dx
-        wn = wind*specialcf.normal(mesh.dim)
-        self.bfa += wn * IfPos(wn, u, u.Other(bnd=uin)) * v * dx(element_boundary=True)
+            self.bfa_trace = BilinearForm(fes_trace, nonassemble=True)
+            wn = wind*specialcf.normal(mesh.dim)
+            self.bfa_trace += (wn * IfPos(wn, utr, utr.Other(bnd=uin)) * vtr).Compile(True,wait=True) * dx(element_boundary=True)
 
+            aop = self.bfa.mat + trace.T @ self.bfa_trace.mat @ trace
+        
         self.invmass = fes.Mass(rho=1).Inverse()
-        self.invMA = self.invmass @ self.bfa.mat
+        self.invMA = self.invmass @ aop
         self.gfu = GridFunction(fes)
     
     def SetInitial(self,u0):
