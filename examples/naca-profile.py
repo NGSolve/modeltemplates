@@ -18,14 +18,12 @@ mesh.Curve(3)
 Draw (mesh)
 
 
-from ngs_templates.NavierStokes import *
+from ngs_templates.NavierStokes import NavierStokes
 from ngsolve.internal import visoptions
 
-# timestep = 1e-3, nu = 5e-4, order = 3 ???
-# timestep = 5e-4, nu = 2e-4, order = 3
-# timestep = 2e-4, nu = 1e-4, order = 3
+# angle of atack
 alpha = 5 * math.pi/180
-timestep = 0.0005
+timestep = 0.001
 navstokes = NavierStokes (mesh, nu=0.0005, order=3, timestep = timestep,
                               inflow="inflow", outflow="outlet", wall="wall",
                               uin=CoefficientFunction( (math.cos(alpha),math.sin(alpha)) ))
@@ -36,15 +34,15 @@ Draw (navstokes.velocity, mesh, "velocity")
 visoptions.scalfunction='velocity:0'
 
 
-tend = 10*timestep
+tend = 10
 t = 0
 
-with TaskManager(pajetrace=100*1000*1000):
+with TaskManager():
     while t < tend:
         print (t)
         navstokes.DoTimeStep()
         t = t+timestep
-        Redraw()
+        Redraw(blocking=True)
 
 
 

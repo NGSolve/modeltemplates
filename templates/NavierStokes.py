@@ -15,16 +15,23 @@ class NavierStokes:
         self.wall = wall
         
         V1 = HDiv(mesh, order=order, dirichlet=inflow+"|"+wall, RT=False)
-        Vhat = VectorFacet(mesh, order=order-1, dirichlet=inflow+"|"+wall+"|"+outflow) # , hide_highest_order_dc=True)
+        Vhat = TangentialFacetFESpace(mesh, order=order-1, dirichlet=inflow+"|"+wall+"|"+outflow) # , hide_highest_order_dc=True)
         Sigma = HCurlDiv(mesh, order = order-1, orderinner=order, discontinuous=True)
+
         if mesh.dim == 2:
             S = L2(mesh, order=order-1)            
         else:
             S = VectorL2(mesh, order=order-1)
+
+        Sigma.SetCouplingType(IntRange(0,Sigma.ndof), COUPLING_TYPE.HIDDEN_DOF)
+        Sigma = Compress(Sigma)
+        S.SetCouplingType(IntRange(0,S.ndof), COUPLING_TYPE.HIDDEN_DOF)
+        S = Compress(S)
+            
         self.V = FESpace ([V1,Vhat, Sigma, S])
 
-        self.V.SetCouplingType(self.V.Range(2), COUPLING_TYPE.HIDDEN_DOF)
-        self.V.SetCouplingType(self.V.Range(3), COUPLING_TYPE.HIDDEN_DOF)
+        # self.V.SetCouplingType(self.V.Range(2), COUPLING_TYPE.HIDDEN_DOF)
+        # self.V.SetCouplingType(self.V.Range(3), COUPLING_TYPE.HIDDEN_DOF)
         self.v1dofs = self.V.Range(0)
         
         u, uhat, sigma, W  = self.V.TrialFunction()
@@ -77,6 +84,7 @@ class NavierStokes:
 
             
         self.invmstar = None
+
         
     @property
     def velocity(self):
@@ -92,7 +100,6 @@ class NavierStokes:
         temp = self.a.mat.CreateColVector()
         self.gfu.components[0].Set (self.uin, definedon=self.V.mesh.Boundaries(self.inflow))
         self.gfu.components[1].Set (self.uin, definedon=self.V.mesh.Boundaries(self.inflow))
-
         inv = self.a.mat.Inverse(self.V.FreeDofs(), inverse="sparsecholesky")
         temp.data = -self.a.mat * self.gfu.vec + self.f.vec
         self.gfu.vec.data += inv * temp
@@ -115,5 +122,6 @@ class NavierStokes:
         self.temp.data += -self.a.mat * self.gfu.vec
         
         self.gfu.vec.data += self.timestep * self.invmstar * self.temp
-        
+
+
         

@@ -3,7 +3,7 @@ from ngs_templates.NavierStokesSIMPLE import *
 
 from ngsolve.internal import visoptions
 
-# ngsglobals.msg_level = 6
+ngsglobals.msg_level = 8
 
 from netgen.csg import *
 geo = CSGeometry()
@@ -17,22 +17,25 @@ mesh = Mesh( geo.GenerateMesh(maxh=0.1))
 mesh.Curve(3)
 Draw(mesh)
 
+# SetNumThreads(1)
 SetHeapSize(100*1000*1000)
-timestep = 0.002
+timestep = 0.001
 
 with TaskManager(pajetrace=100*1000*1000):
   navstokes = NavierStokes (mesh, nu=0.001, order=3, timestep = timestep,
                               inflow="inlet", outflow="outlet", wall="wall|cyl",
                               uin=CoefficientFunction( (16*y*(0.41-y)*z*(0.41-z)/(0.41*0.41*0.41*0.41), 0, 0) ))
                               
+print ("ndof =", navstokes.X.ndof)
 
-navstokes.SolveInitial()
+with TaskManager(pajetrace=100*1000*1000):
+    navstokes.SolveInitial(timesteps=10)
 
-Draw (navstokes.pressure, mesh, "pressure")
+Draw (navstokes.pressure, mesh, "pressure", draw_surf=False)
 Draw (navstokes.velocity, mesh, "velocity")
 visoptions.scalfunction='velocity:0'
 
-tend = 0.1
+tend = 10
 t = 0
 
 with TaskManager(pajetrace=100*1000*1000):

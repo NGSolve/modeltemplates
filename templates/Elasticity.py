@@ -3,9 +3,9 @@ from ngsolve import *
 __all__ = ["HookeMaterial", "NeoHookeMaterial", "Elasticity"]
 
 class HookeMaterial:
-    """Implements Hooke materiallaw.
+    """Hookean materiallaw.
 
-The law is given by
+The energy density is given by
 
 .. math::
     \\mu \\langle \\sigma, \\sigma \\rangle + \\frac{1}{2} \\lambda \\, \\text{trace}(\\sigma)^2
@@ -16,13 +16,14 @@ with
     \\mu = \\frac{E}{2(1+\\mathrm{nu})} \\\\
     \\lambda = \\frac{E \\, \\mathrm{nu}}{(1+\\mathrm{nu})(1-2 \\, \\mathrm{nu})}
 
-Can be called with some strain :math:`\\sigma` and returns materiallaw(:math:`\\sigma`).
+E is the Young modulus, and nu is the Poisson ratio.
 """
     def __init__(self,E,nu, planestrain=False, planestress=False):
         self.E = E
         self.nu = nu
         self.mu  = E / 2 / (1+nu)
         self.lam = E * nu / ((1+nu)*(1-2*nu))
+        self.linear = True
 
     def Stress(self,strain):
         return 2*self.mu*strain + self.lam*Trace(strain)*Id(strain.dims[0])
@@ -32,6 +33,14 @@ Can be called with some strain :math:`\\sigma` and returns materiallaw(:math:`\\
 
 
 class NeoHookeMaterial:
+    """Hookean materiallaw.
+
+The energy density is given by
+
+.. math::
+    \\mu \\langle \\sigma, \\sigma \\rangle + \\frac{1}{2} \\lambda \\, \\text{trace}(\\sigma)^2
+"""
+    
     def __init__(self,E,nu, planestrain=True, planestress=True):
         self.E = E
         self.nu = nu
@@ -48,7 +57,8 @@ class NeoHookeMaterial:
         C = 2*strain+I
         return self.mu * (Trace(strain) + self.mu/self.lam * (Det(C)**(-self.lam/2/self.mu) - 1))
 
-    
+
+CF = CoefficientFunction
     
 class Elasticity:
     """Elasticity problem template.
@@ -77,40 +87,59 @@ with
         self.materiallaw = materiallaw
         self.nonlinear = nonlinear
         
-        u = self.fes.TrialFunction()
-        I = Id(mesh.dim)
-        if nonlinear:
-            F = I + Grad(u)
-            strain = 0.5 * (F.trans * F - I)
-        else:
-            strain = 0.5 * (Grad(u)+Grad(u).trans)
-        self.bfa += Variation( (materiallaw.Energy(strain)*dx).Compile())
         
-        if volumeforce:
-            self.bfa += Variation (-volumeforce*u*dx)
-            
-        if boundaryforce:
-            if type(boundaryforce) is dict:
-                for key,val in boundaryforce.items():
-                    self.bfa += Variation (-val*u*ds(key))
+        if not self.nonlinear and self.materiallaw.linear:
+            self.lff = LinearForm(self.fes)
+            u,v = self.fes.TnT()
+            self.bfa += InnerProduct(materiallaw.Stress(PySym(Grad(u))), PySym(Grad(v))) * dx
+
+            if volumeforce:            
+                self.lff += -volumeforce*v*dx
+
+            if boundaryforce:
+                if type(boundaryforce) is dict:
+                    for key,val in boundaryforce.items():
+                        self.lff += -CF(val)*v*ds(key)
+                else:
+                    self.lff += -boundaryforce*v*ds
+
+            if not self.nonlinear and self.materiallaw.linear:
+                self.pre = MultiGridPreconditioner(self.bfa, inverse="sparsecholesky")
+        else:
+            u = self.fes.TrialFunction()
+            I = Id(mesh.dim)
+            if nonlinear:
+                F = I + Grad(u)
+                strain = 0.5 * (F.trans * F - I)
             else:
-                self.bfa += Variation (-boundaryforce*u*ds)
-
-
-        if boundarydisplacement:
-            if type(boundarydisplacement) is dict:
-                print ("dim u = ", u.dims)
-                for key,val in boundarydisplacement.items():
-                    val = CoefficientFunction(val)
-                    print ("dim val = ", val.dims)
-                    self.bfa += Variation (10**8* InnerProduct(u-val,u-val)*ds(key))
-            
+                strain = 0.5 * (Grad(u)+Grad(u).trans)
+            self.bfa += Variation( (materiallaw.Energy(strain)*dx).Compile())
+        
+            if volumeforce:
+                self.bfa += Variation (-volumeforce*u*dx)
                 
+            if boundaryforce:
+                if type(boundaryforce) is dict:
+                    for key,val in boundaryforce.items():
+                        self.bfa += Variation (-CF(val)*u*ds(key))
+                else:
+                    self.bfa += Variation (-boundaryforce*u*ds)
+
+            if boundarydisplacement:
+                if type(boundarydisplacement) is dict:
+                    for key,val in boundarydisplacement.items():
+                        val = CoefficientFunction(val)
+                        self.bfa += Variation (10**8* InnerProduct(u-val,u-val)*ds(key))
+
 
                 
     def Solve(self):
-        solvers.Newton(self.bfa, self.displacement)
-
+        if not self.nonlinear and self.materiallaw.linear:
+            self.bfa.Assemble()
+            self.lff.Assemble()
+            solvers.BVP(bf=self.bfa, lf=self.lff, gf=self.displacement, pre=self.pre)
+        else:
+            solvers.Newton(self.bfa, self.displacement, printing = ngsglobals.msg_level >= 1)
 
         
     @property

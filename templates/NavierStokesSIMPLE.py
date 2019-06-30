@@ -134,7 +134,7 @@ class NavierStokes:
     def pressure(self):
         return 1e6/self.nu*div(self.gfu.components[0])
         
-    def SolveInitial(self, timesteps=None):
+    def SolveInitial(self):
         self.a.Assemble()        
         self.f.Assemble()
         
@@ -142,27 +142,10 @@ class NavierStokes:
         self.gfu.components[0].Set (self.uin, definedon=self.X.mesh.Boundaries(self.inflow))
         self.gfu.components[1].Set (self.uin, definedon=self.X.mesh.Boundaries(self.inflow))
 
-        if not timesteps:
-            self.astokes.Assemble()
-            inv = self.astokes.mat.Inverse(self.X.FreeDofs(), inverse="sparsecholesky")
-            temp.data = -self.astokes.mat * self.gfu.vec + self.f.vec
-            self.gfu.vec.data += inv * temp
-        else:
-            self.Project(self.gfu.vec[0:self.V.ndof])
-            for it in range(timesteps):
-                print ("it =", it)
-                self.temp = self.a.mat.CreateColVector()
-                self.temp2 = self.a.mat.CreateColVector()        
-                # self.f.Assemble()
-                # self.temp.data = self.conv_operator * self.gfu.vec
-                # self.temp.data += self.f.vec
-                self.temp.data = -self.a.mat * self.gfu.vec
-
-                self.temp2.data = self.invmstar * self.temp
-                self.Project(self.temp2[0:self.V.ndof])
-                self.gfu.vec.data += self.timestep * self.temp2.data
-                self.Project(self.gfu.vec[0:self.V.ndof])
-
+        self.astokes.Assemble()
+        inv = self.astokes.mat.Inverse(self.X.FreeDofs(), inverse="sparsecholesky")
+        temp.data = -self.astokes.mat * self.gfu.vec + self.f.vec
+        self.gfu.vec.data += inv * temp
 
                 
     def AddForce(self, force):
