@@ -7,5 +7,5 @@ Installation
 ------------
 
 ```bash
-pip3 install --user .
+pip3 install --user git+https://github.com/NGSolve/modeltemplates
 ```
