@@ -72,12 +72,13 @@ class NavierStokes:
         self.mstar.Assemble()
         # self.invmstar = self.mstar.mat.Inverse(self.X.FreeDofs(), inverse="sparsecholesky")
         # self.invmstar1 = self.mstar.mat.Inverse(self.X.FreeDofs(self.mstar.condense), inverse="sparsecholesky")
-
+        
         self.invmstar1 = CGSolver(self.mstar.mat, pre=self.premstar, precision=1e-4, printrates=False)
         ext = IdentityMatrix(self.X.ndof)+self.mstar.harmonic_extension
         extT = IdentityMatrix(self.X.ndof)+self.mstar.harmonic_extension_trans
         self.invmstar = ext @ self.invmstar1 @ extT + self.mstar.inner_solve
 
+        # the convective term 
         if False:
             u,v = V.TnT()
             self.conv = BilinearForm(V, nonassemble=True)
@@ -96,7 +97,7 @@ class NavierStokes:
             self.conv_operator = self.convertl2.T @ self.conv_l2.mat @ self.convertl2
 
             
-        
+        # setup problem for pressure projection (hybrid mixed)
         self.V2 = HDiv(mesh, order=order, RT=False, discontinuous=True)
         self.Q = L2(mesh, order=order-1)
         self.Qhat = FacetFESpace(mesh, order=order, dirichlet=outflow)        
