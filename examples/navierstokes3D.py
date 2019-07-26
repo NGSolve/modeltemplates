@@ -29,7 +29,7 @@ with TaskManager(pajetrace=100*1000*1000):
 print ("ndof =", navstokes.X.ndof)
 
 with TaskManager(pajetrace=100*1000*1000):
-    navstokes.SolveInitial(timesteps=10)
+    navstokes.SolveInitial()
 
 Draw (navstokes.pressure, mesh, "pressure", draw_surf=False)
 Draw (navstokes.velocity, mesh, "velocity")
