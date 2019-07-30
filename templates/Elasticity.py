@@ -1,4 +1,5 @@
 from ngsolve import *
+import ngsolve.comp
 
 __all__ = ["HookeMaterial", "NeoHookeMaterial", "Elasticity"]
 
@@ -78,15 +79,30 @@ with
     def __init__(self, materiallaw, mesh, \
                      nonlinear=False, order=2, \
                      volumeforce=None, boundaryforce=None, dirichlet=None,
-                     boundarydisplacement=None):
+                     boundarydisplacement=None, meandisplacement=None):
                      
         # self.fes = VectorH1(mesh, order=order, dirichlet=dirichlet)
-        self.fes = H1(mesh, order=order, dirichlet=dirichlet, dim=mesh.dim)
+        bndnames = []
+        if boundarydisplacement is not None:
+            bndnames = list(boundarydisplacement.keys())
+        if not dirichlet == None:
+            bndnames.append(dirichlet)
+        dirbnds = "|".join(bndnames)
+        # print ("***********************  dirbnds =", dirbnds)
+        self.fes = H1(mesh, order=order, dirichlet=dirbnds, dim=mesh.dim)
+        
+        if type(meandisplacement) is dict:
+            l = [self.fes]
+            for key,val in meandisplacement.items():                
+                l.append(NumberSpace(mesh, dim=mesh.dim, definedon="", definedonbound=key))
+            self.fes = FESpace(l)
+
         self.bfa = BilinearForm(self.fes)
-        self.displacement = GridFunction(self.fes, name="displacement")
+        self.solution = GridFunction(self.fes, name="solution")
         self.materiallaw = materiallaw
         self.nonlinear = nonlinear
-        
+        self.dirichletvalues = GridFunction(self.fes, name="dir")
+        self.boundarydisplacement = boundarydisplacement
         
         if not self.nonlinear and self.materiallaw.linear:
             self.lff = LinearForm(self.fes)
@@ -106,7 +122,10 @@ with
             if not self.nonlinear and self.materiallaw.linear:
                 self.pre = MultiGridPreconditioner(self.bfa, inverse="sparsecholesky")
         else:
-            u = self.fes.TrialFunction()
+            if type(self.solution.space) is ngsolve.comp.CompoundFESpace:            
+                u,*lam = self.fes.TrialFunction()
+            else:
+                u = self.fes.TrialFunction()
             I = Id(mesh.dim)
             if nonlinear:
                 F = I + Grad(u)
@@ -125,22 +144,47 @@ with
                 else:
                     self.bfa += Variation (-boundaryforce*u*ds)
 
-            if boundarydisplacement:
-                if type(boundarydisplacement) is dict:
-                    for key,val in boundarydisplacement.items():
-                        val = CoefficientFunction(val)
-                        self.bfa += Variation (10**8* InnerProduct(u-val,u-val)*ds(key))
+                # if type(boundarydisplacement) is dict:
+                # for key,val in boundarydisplacement.items():
+                # val = CoefficientFunction(val)
+                # self.bfa += Variation (10**10*materiallaw.E*InnerProduct(u-val,u-val)*ds(key))
+                # self.bfa += Variation (10**8*materiallaw.E* ( (u-val)*n )**2 *ds(key))
 
+            if type(meandisplacement) is dict:
+                nr = 0
+                for key,val in meandisplacement.items():
+                    val = CoefficientFunction(val)
+                    self.bfa += Variation (InnerProduct (u-val,lam[nr])*ds(key))
+                    self.bfa += Variation (-1e-10*InnerProduct (lam[nr],lam[nr])*ds(key))
+                    nr = nr+1
 
                 
-    def Solve(self):
+    def Solve(self, **kwargs):
         if not self.nonlinear and self.materiallaw.linear:
             self.bfa.Assemble()
             self.lff.Assemble()
-            solvers.BVP(bf=self.bfa, lf=self.lff, gf=self.displacement, pre=self.pre)
+            solvers.BVP(bf=self.bfa, lf=self.lff, gf=self.solution, pre=self.pre)
         else:
-            solvers.Newton(self.bfa, self.displacement, printing = ngsglobals.msg_level >= 1)
+            
+            if self.boundarydisplacement:
+                cf = CoefficientFunction( [self.boundarydisplacement[bc] if bc in self.boundarydisplacement.keys() else None for bc in self.fes.mesh.GetBoundaries()] )
+                reg = self.fes.mesh.Boundaries( "|".join (self.boundarydisplacement.keys()))
+                self.dirichletvalues.Set(cf, definedon=reg)
+                # Draw (self.dirichletvalues, self.fes.mesh, "dirichlet")
 
+            self.bfa.AssembleLinearization(self.solution.vec)
+
+            solvers.Newton(self.bfa, self.solution, inverse="sparsecholesky", dirichletvalues=self.dirichletvalues.vec, printing = ngsglobals.msg_level >= 1, **kwargs)
+
+
+    @property
+    def displacement(self):
+        print (type(self.solution.space))
+        if type(self.solution.space) is ngsolve.comp.CompoundFESpace:
+            print ("is compound")
+            return self.solution.components[0]
+        else:
+            return self.solution
         
     @property
     def F(self):
@@ -160,3 +204,17 @@ with
     def stress(self):
         return self.materiallaw.Stress(self.strain).Compile()
 
+    
+    def ReactionForces(self, bnd=None):
+        w = GridFunction(self.fes)
+        res = self.displacement.vec.CreateVector()
+        self.bfa.Apply (self.displacement.vec, res)
+        force = []
+        for dir in [(1,0,0), (0,1,0), (0,0,1)]:
+            if bnd is None:
+                w.Set(dir)
+            else:
+                w.Set(dir, definedon=self.bfa.space.mesh.Boundaries(bnd))
+            force.append(InnerProduct(w.vec, res))
+        return force
+    
