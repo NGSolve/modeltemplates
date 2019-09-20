@@ -16,7 +16,7 @@ class NavierStokes:
         
         V = HDiv(mesh, order=order, dirichlet=inflow+"|"+wall, RT=False)
         self.V = V
-        Vhat = VectorFacet(mesh, order=order-1, dirichlet=inflow+"|"+wall+"|"+outflow) 
+        Vhat = TangentialFacetFESpace(mesh, order=order-1, dirichlet=inflow+"|"+wall+"|"+outflow)
         Sigma = HCurlDiv(mesh, order = order-1, orderinner=order, discontinuous=True)
         if mesh.dim == 2:
             S = L2(mesh, order=order-1)            
