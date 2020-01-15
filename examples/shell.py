@@ -43,7 +43,8 @@ else:
      finitecyl = cyl * bot * left * right
         
      geo.AddSurface(cyl, finitecyl)
-     geo.AddPoint(Pnt(0,0,radius), 1)
+     geo.AddPoint(Pnt(0,0,radius), "pntload")
+     
      geo.NameEdge(cyl,bot, "sym")
      geo.NameEdge(cyl,left, "left")
      geo.NameEdge(cyl,right, "right")
@@ -66,6 +67,8 @@ loadsteps = 20
 for i in range(1, loadsteps+1):
     loadfactor.Set(i/loadsteps)
     print("Loadstep = ", i, " / ", loadsteps)
-    model.Solve()
+    with TaskManager():
+        model.Solve()
     Redraw()
     input("key")
+

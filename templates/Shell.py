@@ -114,7 +114,7 @@ class Shell:
 
         self.bfa = BilinearForm(self.fes, symmetric=True, condense=True)
         self.bfa += Variation( (-6/self.thickness**3*materiallaw.MaterialNormInv(sigma)
-                                + InnerProduct(1/J*sigma, Hn + (J - nphys*nsurf)*gradn)).Compile(optimize,wait=True)*ds )
+                                + InnerProduct(sigma, Hn + (1 - nphys*nsurf)*gradn)).Compile(optimize,wait=True)*ds )
         self.bfa += Variation( (0.5*self.thickness*materiallaw.MaterialNorm(C)).Compile(optimize,wait=True)*ds )
         self.bfa += Variation( InnerProduct(C-Etautau, R).Compile(optimize,wait=True)*ds(element_vb=BND) )
         self.bfa += Variation( InnerProduct(C-Etautau, R).Compile(optimize,wait=True)*ds(element_vb=VOL) )
