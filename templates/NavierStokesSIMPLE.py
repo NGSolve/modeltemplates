@@ -28,11 +28,11 @@ class NavierStokes:
         S.SetCouplingType(IntRange(0,S.ndof), COUPLING_TYPE.HIDDEN_DOF)
         S = Compress(S)
         
-        self.X = FESpace ([V,Vhat, Sigma, S])
+        self.X = V*Vhat*Sigma*S
         for i in range(self.X.ndof):
             if self.X.CouplingType(i) == COUPLING_TYPE.WIREBASKET_DOF:
                 self.X.SetCouplingType(i, COUPLING_TYPE.INTERFACE_DOF)
-        self.v1dofs = self.X.Range(0)
+        # self.v1dofs = self.X.Range(0)
         
         u, uhat, sigma, W  = self.X.TrialFunction()
         v, vhat, tau, R  = self.X.TestFunction()
@@ -74,17 +74,18 @@ class NavierStokes:
         # self.invmstar1 = self.mstar.mat.Inverse(self.X.FreeDofs(self.mstar.condense), inverse="sparsecholesky")
         
         self.invmstar1 = CGSolver(self.mstar.mat, pre=self.premstar, precision=1e-4, printrates=False)
-        ext = IdentityMatrix(self.X.ndof)+self.mstar.harmonic_extension
-        extT = IdentityMatrix(self.X.ndof)+self.mstar.harmonic_extension_trans
+        ext = IdentityMatrix()+self.mstar.harmonic_extension
+        extT = IdentityMatrix()+self.mstar.harmonic_extension_trans
         self.invmstar = ext @ self.invmstar1 @ extT + self.mstar.inner_solve
-
+        
         # the convective term 
         if False:
             u,v = V.TnT()
             self.conv = BilinearForm(V, nonassemble=True)
-            self.conv += SymbolicBFI(InnerProduct(grad(v)*u, u).Compile(True, wait=True))
-            self.conv += SymbolicBFI((-IfPos(u * n, u*n*u*v, u*n*u.Other(bnd=self.uin)*v)).Compile(True, wait=True), element_boundary = True)
-            emb = Embedding(self.X.ndof, self.v1dofs)
+            self.conv += SymbolicBFI(InnerProduct(grad(v)*u, u).Compile(realcompile=realcompile, wait=True))
+            self.conv += SymbolicBFI((-IfPos(u * n, u*n*u*v, u*n*u.Other(bnd=self.uin)*v)).Compile(realcompile=realcompile, wait=True), element_boundary = True)
+            # emb = Embedding(self.X.ndof, self.v1dofs)
+            emb = self.X.Embedding(0)
             self.conv_operator = emb @ self.conv.mat @ emb.T
         else:
             VL2 = VectorL2(mesh, order=order, piola=True)
@@ -93,15 +94,17 @@ class NavierStokes:
             self.conv_l2 += InnerProduct(grad(vl2)*ul2, ul2).Compile(realcompile=realcompile, wait=True) * dx
             self.conv_l2 += (-IfPos(ul2 * n, ul2*n*ul2*vl2, ul2*n*ul2.Other(bnd=self.uin)*vl2)).Compile(realcompile=realcompile, wait=True) * dS
         
-            self.convertl2 = V.ConvertL2Operator(VL2) @ Embedding(self.X.ndof, self.v1dofs).T
+            # self.convertl2 = V.ConvertL2Operator(VL2) @ Embedding(self.X.ndof, self.v1dofs).T
+            self.convertl2 = V.ConvertL2Operator(VL2) @ self.X.Embedding(0).T
             self.conv_operator = self.convertl2.T @ self.conv_l2.mat @ self.convertl2
 
             
         # setup problem for pressure projection (hybrid mixed)
-        self.V2 = HDiv(mesh, order=order, RT=False, discontinuous=True)
+        # self.V2 = Discontinuous(self.V)
+        self.V2 = HDiv(mesh, order=order, dirichlet=inflow+"|"+wall, RT=False, discontinuous=True)        
         self.Q = L2(mesh, order=order-1)
         self.Qhat = FacetFESpace(mesh, order=order, dirichlet=outflow)        
-        self.Xproj = FESpace ( [self.V2, self.Q, self.Qhat] )
+        self.Xproj = self.V2*self.Q*self.Qhat
         (u,p,phat),(v,q,qhat) = self.Xproj.TnT()
         aproj = BilinearForm(self.Xproj, condense=True)
         aproj += (-u*v+ div(u)*q + div(v)*p) * dx + (u*n*qhat+v*n*phat) * dS
@@ -111,12 +114,10 @@ class NavierStokes:
         # self.invproj1 = aproj.mat.Inverse(self.Xproj.FreeDofs(aproj.condense), inverse="sparsecholesky")
         self.invproj1 = CGSolver(aproj.mat, pre=cproj, printrates=False)
         ext = IdentityMatrix()+aproj.harmonic_extension
-        extT = IdentityMatrix()+aproj.harmonic_extension_trans
-        self.invproj = ext @ self.invproj1 @ extT + aproj.inner_solve
+        # extT = IdentityMatrix()+aproj.harmonic_extension_trans
+        self.invproj = ext @ self.invproj1 @ ext.T + aproj.inner_solve
         
-        self.bproj = BilinearForm(trialspace=self.V, testspace=self.Xproj)
-        self.bproj += SymbolicBFI(div(self.V.TrialFunction())*q)
-        self.bproj.Assemble()
+        self.bproj = BilinearForm(div(self.V.TrialFunction())*q*dx).Assemble()
 
         # mapping of discontinuous to continuous H(div)
         ind = self.V.ndof * [0]
@@ -164,9 +165,15 @@ class NavierStokes:
         self.temp.data += -self.a.mat * self.gfu.vec
 
         self.temp2.data = self.invmstar * self.temp
-        self.Project(self.temp2[0:self.V.ndof])
+        self.ProjectFull(self.temp2)
         self.gfu.vec.data += self.timestep * self.temp2.data
 
         
     def Project(self,vel):        
-        vel.data -= (self.mapV @ self.invproj @ self.bproj.mat) * vel
+        # vel.data -= (self.mapV @ self.invproj @ self.bproj.mat) * vel
+        vel.data -= self.mapV @ self.invproj @ self.bproj.mat * vel
+
+    def ProjectFull(self,vel):
+        emb = self.X.Embedding(0)
+        vel.data -= (emb@self.mapV @ self.invproj @ self.bproj.mat@emb.T) * vel
+        # vel.data -= LoggingMatrix(self.mapV @ self.invproj @ self.bproj.mat, "project") * vel
