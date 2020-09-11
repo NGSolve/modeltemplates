@@ -3,6 +3,9 @@ from .mt_global import *
 
 __all__ = ["NavierStokes"]
 
+import ngsolve.ngs2petsc
+# from ngsolve.la import LoggingMatrix
+
 class NavierStokes:
     
     def __init__(self, mesh, nu, inflow, outflow, wall, uin, timestep, order=2, volumeforce=None):
@@ -82,23 +85,19 @@ class NavierStokes:
         if False:
             u,v = V.TnT()
             self.conv = BilinearForm(V, nonassemble=True)
-            self.conv += SymbolicBFI(InnerProduct(grad(v)*u, u).Compile(realcompile=realcompile, wait=True))
-            self.conv += SymbolicBFI((-IfPos(u * n, u*n*u*v, u*n*u.Other(bnd=self.uin)*v)).Compile(realcompile=realcompile, wait=True), element_boundary = True)
-            # emb = Embedding(self.X.ndof, self.v1dofs)
-            emb = self.X.Embedding(0)
-            self.conv_operator = emb @ self.conv.mat @ emb.T
+            self.conv += InnerProduct(grad(v)*u, u).Compile(realcompile=realcompile, wait=True) * dx
+            self.conv += (-IfPos(u * n, u*n*u*v, u*n*u.Other(bnd=self.uin)*v)).Compile(realcompile=realcompile, wait=True) * dS
+            rest = self.X.Restriction(0)
+            self.conv_operator = rest.T @ self.conv.mat @ rest
         else:
             VL2 = VectorL2(mesh, order=order, piola=True)
             ul2,vl2 = VL2.TnT()
             self.conv_l2 = BilinearForm(VL2, nonassemble=True)
             self.conv_l2 += InnerProduct(grad(vl2)*ul2, ul2).Compile(realcompile=realcompile, wait=True) * dx
             self.conv_l2 += (-IfPos(ul2 * n, ul2*n*ul2*vl2, ul2*n*ul2.Other(bnd=self.uin)*vl2)).Compile(realcompile=realcompile, wait=True) * dS
-        
-            # self.convertl2 = V.ConvertL2Operator(VL2) @ Embedding(self.X.ndof, self.v1dofs).T
-            self.convertl2 = V.ConvertL2Operator(VL2) @ self.X.Embedding(0).T
+            self.convertl2 = V.ConvertL2Operator(VL2) @ self.X.Restriction(0)
             self.conv_operator = self.convertl2.T @ self.conv_l2.mat @ self.convertl2
 
-            
         # setup problem for pressure projection (hybrid mixed)
         # self.V2 = Discontinuous(self.V)
         self.V2 = HDiv(mesh, order=order, dirichlet=inflow+"|"+wall, RT=False, discontinuous=True)        
@@ -108,7 +107,10 @@ class NavierStokes:
         (u,p,phat),(v,q,qhat) = self.Xproj.TnT()
         aproj = BilinearForm(self.Xproj, condense=True)
         aproj += (-u*v+ div(u)*q + div(v)*p) * dx + (u*n*qhat+v*n*phat) * dS
-        cproj = Preconditioner(aproj, "bddc", coarsetype="h1amg")            
+        # cproj = Preconditioner(aproj, "bddc", coarsetype="h1amg")
+        # cproj = Preconditioner(aproj, "bddc")
+        # cproj = Preconditioner(aproj, "gamg")
+        cproj = Preconditioner(aproj, "bddc", coarsetype="gamg")        
         aproj.Assemble()
         
         # self.invproj1 = aproj.mat.Inverse(self.Xproj.FreeDofs(aproj.condense), inverse="sparsecholesky")
@@ -153,27 +155,30 @@ class NavierStokes:
     def AddForce(self, force):
         force = CoefficientFunction(force)
         v, vhat, tau, R  = self.X.TestFunction()        
-        self.f += SymbolicLFI(force * v)
+        self.f += force*v*dx
         
     def DoTimeStep(self):
         
         self.temp = self.a.mat.CreateColVector()
-        self.temp2 = self.a.mat.CreateColVector()        
+        self.temp2 = self.a.mat.CreateRowVector()
         self.f.Assemble()
+        
         self.temp.data = self.conv_operator * self.gfu.vec
         self.temp.data += self.f.vec
         self.temp.data += -self.a.mat * self.gfu.vec
-
-        self.temp2.data = self.invmstar * self.temp
-        self.ProjectFull(self.temp2)
+        self.temp2.data =  self.invmstar * self.temp
+        # self.ProjectFull(self.temp2)
+        self.Project(self.temp2[self.X.Range(0)])
         self.gfu.vec.data += self.timestep * self.temp2.data
 
         
     def Project(self,vel):        
-        # vel.data -= (self.mapV @ self.invproj @ self.bproj.mat) * vel
         vel.data -= self.mapV @ self.invproj @ self.bproj.mat * vel
 
     def ProjectFull(self,vel):
         emb = self.X.Embedding(0)
-        vel.data -= (emb@self.mapV @ self.invproj @ self.bproj.mat@emb.T) * vel
-        # vel.data -= LoggingMatrix(self.mapV @ self.invproj @ self.bproj.mat, "project") * vel
+        rest = self.X.Restriction(0)
+        # opinfo = (emb@self.mapV @ self.invproj @ self.bproj.mat@rest).GetOperatorInfo()
+        # print ("project operator =", opinfo)
+        vel.data -= emb @ self.mapV @ self.invproj @ self.bproj.mat @ rest * vel
+
