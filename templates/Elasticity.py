@@ -122,7 +122,7 @@ with
             if not self.nonlinear and self.materiallaw.linear:
                 self.pre = MultiGridPreconditioner(self.bfa, inverse="sparsecholesky")
         else:
-            if type(self.solution.space) is ngsolve.comp.CompoundFESpace:            
+            if type(self.solution.space) is ngsolve.comp.ProductSpace:            
                 u,*lam = self.fes.TrialFunction()
             else:
                 u = self.fes.TrialFunction()
@@ -180,7 +180,7 @@ with
     @property
     def displacement(self):
         print (type(self.solution.space))
-        if type(self.solution.space) is ngsolve.comp.CompoundFESpace:
+        if type(self.solution.space) is ngsolve.comp.ProductSpace:
             print ("is compound")
             return self.solution.components[0]
         else:
